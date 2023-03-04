@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 
-	"github.com/jackskj/carta/value"
+	"github.com/jassingh9/carta/value"
+	"github.com/valyala/bytebufferpool"
 )
 
 func (m *Mapper) loadRows(rows *sql.Rows, colTyps []*sql.ColumnType) (*resolver, error) {
@@ -18,6 +20,8 @@ func (m *Mapper) loadRows(rows *sql.Rows, colTyps []*sql.ColumnType) (*resolver,
 		colTypNames[i] = colTyps[i].DatabaseTypeName()
 	}
 	rsv := newResolver()
+
+	rownum := 0
 	for rows.Next() {
 		for i := 0; i < len(colTyps); i++ {
 			row[i] = value.NewCell(colTypNames[i])
@@ -25,9 +29,10 @@ func (m *Mapper) loadRows(rows *sql.Rows, colTyps []*sql.ColumnType) (*resolver,
 		if err = rows.Scan(row...); err != nil {
 			return nil, err
 		}
-		if err = loadRow(m, row, rsv); err != nil {
+		if err = loadRow(m, row, rsv, rownum); err != nil {
 			return nil, err
 		}
+		rownum++
 	}
 	return rsv, nil
 }
@@ -38,18 +43,22 @@ func (m *Mapper) loadRows(rows *sql.Rows, colTyps []*sql.ColumnType) (*resolver,
 // if new object is foind, create a new instance of a struct that
 // maps onto that struct,
 // for example, if a user maps onto:
-// type Blog struct {
-//          BlogId string
-// }
+//
+//	type Blog struct {
+//	         BlogId string
+//	}
+//
 // blogs := []Blog:
 // carta.Map(rows, &blogs)
 // if a new blog_id column value is found, I instantiatiate a new instance of Blog,
 // set BlogId, then store the pointer referenct to this instance in the resolver
 // nothins is done when the object has been already mapped in previous rows, however,
 // the function contunous to recursivelly map rows for all sub mappings inside Blog
-//  for example, if a blog has many Authors
+//
+//	for example, if a blog has many Authors
+//
 // rows are actually []*Cell, theu are passed here as interface since sql scan requires []interface{}
-func loadRow(m *Mapper, row []interface{}, rsv *resolver) error {
+func loadRow(m *Mapper, row []interface{}, rsv *resolver, rownum int) error {
 	var (
 		err      error
 		dstField reflect.Value // destination field to be set with
@@ -58,7 +67,14 @@ func loadRow(m *Mapper, row []interface{}, rsv *resolver) error {
 		found    bool
 	)
 
-	uid := getUniqueId(row, m)
+	var uid uniqueValId
+	if m.Crd != Collection { // i am not sure if this really is the solution
+		uid = ""
+	} else if len(m.PresentColumns) == 0 {
+		uid = uniqueValId(strconv.Itoa(rownum))
+	} else {
+		uid = getUniqueId(row, m)
+	}
 
 	if elem, found = rsv.elements[uid]; !found {
 		// unique row mapping found, new object
@@ -69,7 +85,7 @@ func loadRow(m *Mapper, row []interface{}, rsv *resolver) error {
 				kind     reflect.Kind  // kind of destination
 				dst      reflect.Value // destination to set
 				typ      reflect.Type  // underlying type of the destination
-				isDstPtr bool          //is the destination a pointer
+				isDstPtr bool          // is the destination a pointer
 			)
 
 			cell = row[col.columnIndex].(*value.Cell)
@@ -197,7 +213,7 @@ func loadRow(m *Mapper, row []interface{}, rsv *resolver) error {
 		elem = &element{v: loadElem}
 		if len(m.SubMaps) != 0 {
 			elem.subMaps = map[fieldIndex]*resolver{}
-			for i, _ := range m.SubMaps {
+			for i := range m.SubMaps {
 				elem.subMaps[i] = newResolver()
 			}
 		}
@@ -206,7 +222,7 @@ func loadRow(m *Mapper, row []interface{}, rsv *resolver) error {
 	}
 
 	for i, subMap := range m.SubMaps {
-		if err = loadRow(subMap, row, elem.subMaps[i]); err != nil {
+		if err = loadRow(subMap, row, elem.subMaps[i], rownum); err != nil {
 			return err
 		}
 	}
@@ -215,11 +231,15 @@ func loadRow(m *Mapper, row []interface{}, rsv *resolver) error {
 }
 
 // Generates unique id based on the ancestors of the struct as well as currently considered colum values
+// use a bytebufferpool to reduce allocs.
+// TODO: if we know the unique key of the struct, maybe just use that instead of all values.
 func getUniqueId(row []interface{}, m *Mapper) uniqueValId {
 	// TODO: set capacity of the uid slice, using bytes.buffer
-	uid := ""
+	buf := bytebufferpool.Get()
+	defer bytebufferpool.Put(buf)
+
 	for _, i := range m.SortedColumnIndexes {
-		uid = uid + row[i].(*value.Cell).Uid()
+		buf.WriteString(row[i].(*value.Cell).Uid())
 	}
-	return uniqueValId(uid)
+	return uniqueValId(buf.String())
 }

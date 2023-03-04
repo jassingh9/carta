@@ -8,7 +8,7 @@ import (
 
 	"github.com/golang/protobuf/ptypes"
 	timestamppb "github.com/golang/protobuf/ptypes/timestamp"
-	"github.com/jackskj/carta/testdata/initdb"
+	"github.com/jassingh9/carta/testdata/initdb"
 
 	// default deivers
 	_ "github.com/go-sql-driver/mysql"

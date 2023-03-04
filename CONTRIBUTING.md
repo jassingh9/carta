@@ -9,13 +9,13 @@ Please follow the code of conduct when interacting with the carta project.
 The recommended PR process is as follows.
 
 1. Please first discuss the change you wish to make via issue.
-2. Upgrade with `go get -u github.com/jackskj/carta`
-3. cd `$GOPATH/src/github.com/jackskj/carta`
-4. Reflect your changes in example files as well as the README. 
-5. You can use gazelle functions (gazelle, repos, and fix) from the Makefile. 
-6. Make sure that the build succedes with `go build` or `make build` 
+2. Upgrade with `go get -u github.com/jassingh9/carta`
+3. cd `$GOPATH/src/github.com/jassingh9/carta`
+4. Reflect your changes in example files as well as the README.
+5. You can use gazelle functions (gazelle, repos, and fix) from the Makefile.
+6. Make sure that the build succedes with `go build` or `make build`
    and all tests pass with `make test`
-7. Make sure to follow [Effective Go](https://golang.org/doc/effective_go.html)  
+7. Make sure to follow [Effective Go](https://golang.org/doc/effective_go.html)
    as well as [Go Code Review Comments](https://golang.org/wiki/CodeReviewComments)
 
 ## Code of Conduct

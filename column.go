@@ -15,14 +15,11 @@ type column struct {
 }
 
 func allocateColumns(m *Mapper, columns map[string]column) error {
-	var (
-		candidates map[string]bool
-	)
 	presentColumns := map[string]column{}
 	for cName, c := range columns {
 		if m.IsBasic {
-			candidates = getColumnNameCandidates("", m.AncestorNames)
-			if _, ok := candidates[cName]; ok {
+			candidate := getSingleColumnNameCandidate("", m.AncestorName)
+			if cName == candidate {
 				presentColumns[cName] = column{
 					typ:         c.typ,
 					name:        cName,
@@ -32,17 +29,20 @@ func allocateColumns(m *Mapper, columns map[string]column) error {
 			}
 		} else {
 			for i, field := range m.Fields {
-				candidates = getColumnNameCandidates(field.Name, m.AncestorNames)
 				// can only allocate columns to basic fields
-				if isBasicType(field.Typ) {
-					if _, ok := candidates[cName]; ok {
+				if !field.IsMapped && isBasicType(field.Typ) {
+					field := m.Fields[i]
+					candidate := getSingleColumnNameCandidate(field.Name, m.AncestorName)
+					if cName == candidate {
 						presentColumns[cName] = column{
 							typ:         c.typ,
 							name:        cName,
 							columnIndex: c.columnIndex,
 							i:           i,
 						}
+						field.IsMapped = true
 						delete(columns, cName) // dealocate claimed column
+						break
 					}
 				}
 			}
@@ -60,21 +60,17 @@ func allocateColumns(m *Mapper, columns map[string]column) error {
 	sort.Ints(columnIds)
 	m.SortedColumnIndexes = columnIds
 
-	ancestorNames := []string{}
-	if len(m.AncestorNames) != 0 {
-		ancestorNames = m.AncestorNames
-	}
-
 	for i, subMap := range m.SubMaps {
-		subMap.AncestorNames = append(ancestorNames, m.Fields[i].Name)
+		subMap.AncestorName = m.Fields[i].Name
 		if err := allocateColumns(subMap, columns); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
-func getColumnNameCandidates(fieldName string, ancestorNames []string) map[string]bool {
+func getColumnNameCandidates(fieldName string, ancestorName string) map[string]bool {
 	// empty field name means that the mapper is basic, since there is no struct assiciated with this slice, there is no field name
 	candidates := map[string]bool{}
 	if fieldName != "" {
@@ -82,21 +78,30 @@ func getColumnNameCandidates(fieldName string, ancestorNames []string) map[strin
 		candidates[toSnakeCase(fieldName)] = true
 		candidates[strings.ToLower(fieldName)] = true
 	}
-	if len(ancestorNames) == 0 {
+	if ancestorName == "" {
 		return candidates
 	}
 	nameConcat := fieldName
-	for i := len(ancestorNames) - 1; i >= 0; i-- {
-		if nameConcat == "" {
-			nameConcat = ancestorNames[i]
-		} else {
-			nameConcat = ancestorNames[i] + "_" + nameConcat
-		}
-		candidates[nameConcat] = true
-		candidates[strings.ToLower(nameConcat)] = true
-		candidates[toSnakeCase(nameConcat)] = true
+
+	if nameConcat == "" {
+		nameConcat = ancestorName
+	} else {
+		nameConcat = ancestorName + "." + nameConcat
 	}
+	candidates[nameConcat] = true
+	candidates[strings.ToLower(nameConcat)] = true
+	candidates[toSnakeCase(nameConcat)] = true
 	return candidates
+}
+
+func getSingleColumnNameCandidate(fieldName string, ancestorName string) string {
+	if fieldName == "" {
+		return ancestorName
+	} else {
+		return strings.ToLower(ancestorName) + "." + strings.ToLower(fieldName)
+	}
+
+	return ""
 }
 
 func toSnakeCase(s string) string {

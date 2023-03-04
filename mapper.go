@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 
-	"github.com/jackskj/carta/value"
+	"github.com/jassingh9/carta/value"
 )
 
 const (
@@ -29,15 +30,17 @@ type Field struct {
 	Typ  reflect.Type
 	Kind reflect.Kind
 
-	//If the field is a pointer, fields below represent the underlying type,
+	// If the field is a pointer, fields below represent the underlying type,
 	// these fields are here to prevent reflect.PtrTo, or reflect.elem calls when setting primatives and basic types
 	IsPtr    bool
 	ElemTyp  reflect.Type // if Typ is *int, elemTyp is int
 	ElemKind reflect.Kind // if kind is ptr and typ is *int, elem kind is int
+	IsMapped bool
 }
 
 type Mapper struct {
-	Crd Cardinality //
+	Name string
+	Crd  Cardinality //
 
 	IsListPtr bool // true if destination is *[], false if destination is [], used only if cardinality is a collection
 
@@ -76,8 +79,8 @@ type Mapper struct {
 	// the following querry would correctly map if we were mapping to *[]Manager
 	// "select id, employees_id from employees join managers"
 	// employees_ is the prefix of the parent (lower case of the parent with "_")
-	Fields        map[fieldIndex]Field
-	AncestorNames []string // Field.Name of ancestors
+	Fields       map[fieldIndex]*Field
+	AncestorName string // Field.Name of ancestors
 
 	// Nested structs which correspond to any has-one has-many relationships
 	// int is the ith element of this struct where the submap exists
@@ -96,10 +99,12 @@ func Map(rows *sql.Rows, dst interface{}) error {
 	if err != nil {
 		return err
 	}
+
 	columnTypes, err := rows.ColumnTypes()
 	if err != nil {
 		return err
 	}
+
 	dstTyp := reflect.TypeOf(dst)
 	mapper, ok := mapperCache.loadMap(columns, dstTyp)
 	if !ok {
@@ -119,15 +124,41 @@ func Map(rows *sql.Rows, dst interface{}) error {
 
 		// Allocate columns
 		columnsByName := map[string]column{}
-		for i, columnName := range columns {
-			columnsByName[columnName] = column{
-				name:        columnName,
+		for i, alias := range columns {
+			names := strings.SplitN(alias, ".", 2)
+			commonIdentifier := strings.ToLower(names[0])
+
+			if len(names) > 1 {
+				commonIdentifier = commonIdentifier + "." + strings.ToLower(names[1])
+			}
+
+			columnsByName[commonIdentifier] = column{
+				name:        commonIdentifier,
 				typ:         columnTypes[i],
 				columnIndex: i,
 			}
 		}
+
 		if err = allocateColumns(mapper, columnsByName); err != nil {
 			return err
+		}
+
+		/**********************************************************************
+		 * if not all columns could be mapped to a field, then return
+		 * an error with all the fieldnames.
+		**********************************************************************/
+		if len(columnsByName) > 0 {
+			missingColumns := ""
+			i := 0
+			for id := range columnsByName {
+				if i > 0 {
+					missingColumns += ", "
+				}
+				missingColumns += id
+				i++
+			}
+
+			return fmt.Errorf("not all columns could be mapped: \ncolumns: %s", missingColumns)
 		}
 
 		mapperCache.storeMap(columns, dstTyp, mapper)
@@ -139,7 +170,6 @@ func Map(rows *sql.Rows, dst interface{}) error {
 	}
 
 	return setDst(mapper, reflect.ValueOf(dst), rsv)
-
 }
 
 func newMapper(t reflect.Type) (*Mapper, error) {
@@ -193,6 +223,7 @@ func newMapper(t reflect.Type) (*Mapper, error) {
 		Typ:       elemTyp,
 		Kind:      elemTyp.Kind(),
 		IsTypePtr: isTypePtr,
+		Name:      elemTyp.Name(),
 	}
 	if subMaps, err = findSubMaps(mapper.Typ); err != nil {
 		return nil, err
@@ -223,24 +254,24 @@ func findSubMaps(t reflect.Type) (map[fieldIndex]*Mapper, error) {
 }
 
 func determineFieldsNames(m *Mapper) error {
-	var (
-		name string
-	)
-	fields := map[fieldIndex]Field{}
+	var name string
+	m.Fields = map[fieldIndex]*Field{}
 
 	if m.IsBasic {
 		return nil
 	}
 
+	vp := reflect.New(m.Typ)
+	v := reflect.Indirect(vp)
 	for i := 0; i < m.Typ.NumField(); i++ {
 		field := m.Typ.Field(i)
-		if isExported(field) {
+		if v.FieldByName(field.Name).CanSet() {
 			if tag := nameFromTag(field.Tag); tag != "" {
 				name = tag
 			} else {
 				name = field.Name
 			}
-			f := Field{
+			f := &Field{
 				Name:  name,
 				Typ:   field.Type,
 				Kind:  field.Type.Kind(),
@@ -250,10 +281,9 @@ func determineFieldsNames(m *Mapper) error {
 				f.ElemKind = field.Type.Elem().Kind()
 				f.ElemTyp = field.Type.Elem()
 			}
-			fields[fieldIndex(i)] = f
+			m.Fields[fieldIndex(i)] = f
 		}
 	}
-	m.Fields = fields
 	for _, subMap := range m.SubMaps {
 		if err := determineFieldsNames(subMap); err != nil {
 			return err
@@ -268,7 +298,6 @@ func isExported(f reflect.StructField) bool {
 
 func nameFromTag(t reflect.StructTag) string {
 	return t.Get(CartaTagKey)
-
 }
 
 func isSubMap(t reflect.Type) bool {

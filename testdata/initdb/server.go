@@ -9,8 +9,8 @@ import (
 
 	"github.com/Masterminds/sprig"
 	_ "github.com/golang/protobuf/ptypes/timestamp"
-	sqlTpl "github.com/jackskj/carta/testdata/initdb/sql"
 	tpl "github.com/jackskj/protoc-gen-map/templates"
+	sqlTpl "github.com/jassingh9/carta/testdata/initdb/sql"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

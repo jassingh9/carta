@@ -4,7 +4,7 @@ package initdb;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/jackskj/carta/testdata/initdb;initdb";
+option go_package = "github.com/jassingh9/carta/testdata/initdb;initdb";
 
 service InitService {
   rpc InitDB (InitRequest) returns (EmptyResponse) {}
@@ -15,7 +15,7 @@ service InitService {
   rpc InsertPostTag (InsertPostTagRequest) returns (EmptyResponse) {}
   rpc InsertTag (InsertTagRequest) returns (EmptyResponse) {}
 }
-message Meta { 
+message Meta {
   string db = 1;
 }
 
@@ -70,6 +70,6 @@ message InsertTagRequest {
 
 message EmptyResponse {}
 
-message InitRequest { 
+message InitRequest {
   Meta meta = 1;
 }
