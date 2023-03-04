@@ -1,4 +1,4 @@
-module github.com/jackskj/carta
+module github.com/jassingh9/carta
 
 go 1.14
 
